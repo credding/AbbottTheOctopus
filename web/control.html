@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abbott Control Panel</title>
+<style>
+  :root {
+    --bg: #f6f4f1;
+    --surface: #ffffff;
+    --surface-2: #efece7;
+    --text: #1d1b19;
+    --muted: #6b655e;
+    --border: #ddd7cf;
+    --accent: #c2410c;
+    --accent-text: #ffffff;
+    --ok: #15803d;
+    --warn: #b45309;
+    --bad: #b91c1c;
+    --code-bg: #f1eee9;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151413;
+      --surface: #1f1d1b;
+      --surface-2: #2a2724;
+      --text: #f1ede8;
+      --muted: #a39b91;
+      --border: #3a3631;
+      --accent: #fb923c;
+      --accent-text: #1d1b19;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+      --bad: #f87171;
+      --code-bg: #262320;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 16px 16px 64px; }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 8px 16px; padding: 8px 0 16px;
+  }
+  h1 { font-size: 24px; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 18px; margin: 0 0 4px; }
+  h3 { font-size: 15px; margin: 16px 0 4px; }
+  p { margin: 4px 0 8px; }
+  .muted { color: var(--muted); }
+  nav { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; }
+  nav a { color: var(--muted); text-decoration: none; }
+  nav a:hover { color: var(--text); }
+
+  .status { display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px;
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); }
+  .dot.bad { background: var(--bad); }
+  .dot.warn { background: var(--warn); }
+
+  section.card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px; margin: 16px 0;
+  }
+
+  /* Reactions */
+  .reactions { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 12px; margin-top: 12px; }
+  .reaction {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px; display: flex; flex-direction: column; gap: 6px;
+    background: var(--bg);
+  }
+  .reaction dl { margin: 0; font-size: 13px; }
+  .reaction dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }
+  .reaction dd { margin: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 6px; border-radius: 4px; background: var(--code-bg); border: 1px solid var(--border); }
+
+  button {
+    font: inherit; cursor: pointer; border-radius: 8px;
+    padding: 8px 14px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text);
+  }
+  button:hover { border-color: var(--muted); }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button.big { width: 100%; padding: 12px; font-size: 16px; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+  /* Single arm */
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg button { min-width: 40px; padding: 6px 10px; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .hslider { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; margin-top: 12px; }
+  input[type="range"] { accent-color: var(--accent); width: 100%; height: 32px; margin: 0; }
+  .value { font: 600 18px ui-monospace, SFMono-Regular, Menlo, monospace; min-width: 3.2em; text-align: right; }
+
+  /* All arms */
+  .arms {
+    display: grid; grid-template-columns: repeat(var(--n, 8), minmax(0, 1fr)) auto;
+    gap: 6px; margin-top: 12px; align-items: end;
+  }
+  .arm { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+  .arm input[type="range"] {
+    writing-mode: vertical-lr; direction: rtl;
+    width: 32px; height: 180px;
+  }
+  .arm .v { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .arm label { font-size: 12px; color: var(--muted); }
+  .arm.master { padding-left: 10px; border-left: 1px dashed var(--border); }
+  .arm.master label { color: var(--accent); font-weight: 600; }
+  .presets { margin-top: 12px; }
+  label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+
+  /* Docs */
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; overflow-x: auto; margin: 6px 0 10px; line-height: 1.45;
+  }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 6px 0 10px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  .table-wrap { overflow-x: auto; }
+  .method { font: 700 12px ui-monospace, monospace; padding: 2px 6px; border-radius: 4px; background: var(--accent); color: var(--accent-text); margin-right: 6px; }
+  .method.get { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+  details { border-top: 1px solid var(--border); padding: 10px 0; }
+  details:first-of-type { border-top: none; }
+  summary { cursor: pointer; font-weight: 600; }
+
+  /* Log */
+  #log { list-style: none; margin: 8px 0 0; padding: 0; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 220px; overflow-y: auto; }
+  #log li { padding: 4px 0; border-bottom: 1px solid var(--border); word-break: break-word; }
+  #log .ok { color: var(--ok); }
+  #log .bad { color: var(--bad); }
+
+  @media (max-width: 560px) {
+    .arm input[type="range"] { height: 150px; width: 26px; }
+    .arms { gap: 2px; }
+    .arm.master { padding-left: 4px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>🐙 Abbott Control Panel</h1>
+      <nav>
+        <a href="#reactions">Reactions</a>
+        <a href="#arm">One tentacle</a>
+        <a href="#arms">All tentacles</a>
+        <a href="#api">API reference</a>
+        <a href="#log-card">Log</a>
+      </nav>
+    </div>
+    <div class="status" aria-live="polite">
+      <span class="pill"><span class="dot" id="conn-dot"></span><span id="conn-text">Connecting…</span></span>
+      <span class="pill"><span class="dot" id="hold-dot"></span><span id="hold-text">Arms: —</span></span>
+    </div>
+  </header>
+
+  <!-- Reactions -->
+  <section class="card" id="reactions">
+    <h2>Reactions</h2>
+    <p class="muted">Each button sends a <code>POST /reaction</code> with one of the Zoom emoji names mapped to that reaction, exactly as the Zoom App does. Reactions play one at a time: extra clicks queue up, but clicking a reaction that's already queued does nothing. A reaction always takes over the arms and clears manual hold.</p>
+    <div class="reactions" id="reaction-grid"></div>
+  </section>
+
+  <!-- Single arm -->
+  <section class="card" id="arm">
+    <h2>One tentacle <span class="muted" style="font-weight:400;font-size:14px">— <code>POST /arm</code></span></h2>
+    <p class="muted">Pick a tentacle, then drag. Values are sent live while you drag. <code>0</code> = down, <code>0.5</code> = neutral, <code>1</code> = up. Moving a tentacle puts the arms into <strong>manual hold</strong>, so the idle animation stops resetting them.</p>
+    <div class="seg" id="arm-picker" role="group" aria-label="Tentacle"></div>
+    <div class="hslider">
+      <span class="muted">down</span>
+      <input type="range" id="arm-slider" min="0" max="1" step="0.01" value="0.5" aria-label="Height of selected tentacle">
+      <span class="muted">up</span>
+    </div>
+    <div class="row" style="justify-content:space-between;margin-top:6px">
+      <span>Tentacle <strong id="arm-label">0</strong> → <span class="value" id="arm-value">0.50</span></span>
+      <button type="button" id="arm-neutral">Neutral (0.5)</button>
+    </div>
+  </section>
+
+  <!-- All arms -->
+  <section class="card" id="arms">
+    <h2>All tentacles <span class="muted" style="font-weight:400;font-size:14px">— <code>POST /arms</code></span></h2>
+    <p class="muted">One slider per tentacle. The <strong>All</strong> slider moves every tentacle together. With “Send live” on, every change sends the full set of heights. Turn it off to set up a pose, then press <em>Send pose</em>.</p>
+    <div class="arms" id="arms-grid"></div>
+    <div class="row presets">
+      <button type="button" data-preset="neutral">All neutral</button>
+      <button type="button" data-preset="down">All down</button>
+      <button type="button" data-preset="up">All up</button>
+      <button type="button" data-preset="alternate">Alternate</button>
+      <button type="button" data-preset="ramp">Ramp</button>
+    </div>
+    <div class="row presets" style="justify-content:space-between">
+      <label class="check"><input type="checkbox" id="live" checked> Send live</label>
+      <div class="row">
+        <button type="button" class="primary" id="send-pose">Send pose</button>
+        <button type="button" id="release">Release to idle</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- API docs -->
+  <section class="card" id="api">
+    <h2>API reference</h2>
+    <p class="muted">Every request goes to this server, at <code class="origin"></code>. Send <code>POST</code> bodies as JSON with <code>Content-Type: application/json</code>. Client mistakes get a <code>400</code> with <code>{"status": "error", "message": "…"}</code>.</p>
+
+    <details open>
+      <summary><span class="method">POST</span>/reaction: play a reaction</summary>
+      <p>Body: an object whose <code>type</code> is a Zoom emoji name. Other fields (what the Zoom backend sends) are ignored.</p>
+      <pre><code>{"type": "heart"}</code></pre>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Reaction</th><th><code>type</code> values</th></tr></thead>
+        <tbody id="mapping-table"></tbody>
+      </table></div>
+      <p>Response <code>200</code>: <code>{"status": "success", "recognized": true, …}</code>. Unknown names still get a <code>200</code>, with <code>"recognized": false</code>, and are ignored.</p>
+      <pre><code class="curl" data-path="/reaction" data-body='{"type": "heart"}'></code></pre>
+    </details>
+
+    <details open>
+      <summary><span class="method">POST</span>/arm: set one tentacle</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>tentacle</code></td><td>integer</td><td>Tentacle number, <code>0</code>–<span class="max-arm">7</span> (PCA9685 channel). A numeric string like <code>"3"</code> also works.</td></tr>
+          <tr><td><code>height</code></td><td>number</td><td><code>0.0</code> (down) to <code>1.0</code> (up). <code>0.5</code> is neutral. Must be a JSON number, not a string.</td></tr>
+        </tbody>
+      </table></div>
+      <pre><code class="curl" data-path="/arm" data-body='{"tentacle": 2, "height": 0.75}'></code></pre>
+      <p>Response <code>200</code>: <code>{"status": "success", "set": {"2": 0.75}, "timestamp": "…"}</code></p>
+    </details>
+
+    <details open>
+      <summary><span class="method">POST</span>/arms: set several or all tentacles</summary>
+      <p><code>heights</code> can be a <strong>list</strong> (the position in the list is the tentacle number, and <code>null</code> leaves that tentacle alone):</p>
+      <pre><code>{"heights": [0.5, 0.6, 0.5, 0.7, 0.5, 0.5, 0.5, 0.5]}
+{"heights": [null, 0.9, null, 0.1]}</code></pre>
+      <p>…or an <strong>object</strong> that names only the tentacles to move:</p>
+      <pre><code>{"heights": {"1": 0.9, "3": 0.1}}</code></pre>
+      <p>Every value is checked first. If any one is invalid, nothing moves.</p>
+      <pre><code class="curl" data-path="/arms" data-body='{"heights": [0.5, 0.6, 0.5, 0.7, 0.5, 0.5, 0.5, 0.5]}'></code></pre>
+      <p>Response <code>200</code>: <code>{"status": "success", "set": {"0": 0.5, "1": 0.6, …}, "timestamp": "…"}</code></p>
+    </details>
+
+    <details open>
+      <summary><span class="method">POST</span>/arms/release: back to idle</summary>
+      <p>No body. Leaves manual hold, and the arms return to neutral (0.5) on the next frame.</p>
+      <pre><code class="curl" data-path="/arms/release"></code></pre>
+    </details>
+
+    <details>
+      <summary><span class="method get">GET</span>/health and /info</summary>
+      <p><code>/health</code> → <code>{"status": "healthy", "service": "abbott-combined", "manual_hold": false, …}</code></p>
+      <p><code>/info</code> → <code>{"n_arms": 8, "neutral_height": 0.5, "reactions": {"Love": ["heart", "clap"], …}}</code> (this page uses it to build itself)</p>
+    </details>
+
+    <details>
+      <summary>How reactions and manual control share the arms</summary>
+      <ul>
+        <li><strong>Idle:</strong> the eyes wander, and the arms sit at 0.5.</li>
+        <li><strong>After <code>/arm</code> or <code>/arms</code>:</strong> manual hold. The arms stay where you put them, and the eyes keep wandering.</li>
+        <li><strong>A reaction</strong> takes over the arms and clears manual hold. Afterwards the arms return to 0.5, not to your manual pose.</li>
+        <li><strong><code>/arms/release</code></strong> clears manual hold without playing a reaction.</li>
+        <li>Manual commands sent <em>during</em> a reaction are applied, but the reaction's next frame usually overwrites them.</li>
+      </ul>
+    </details>
+  </section>
+
+  <section class="card" id="log-card">
+    <div class="row" style="justify-content:space-between">
+      <h2>Log</h2>
+      <button type="button" id="clear-log">Clear</button>
+    </div>
+    <ul id="log"></ul>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  // Fallbacks in case /info can't be reached; the server's values replace them.
+  let N_ARMS = 8;
+  let NEUTRAL = 0.5;
+  let REACTION_EMOJIS = {
+    Excited: ["tada", "joy"],
+    Love: ["heart", "clap"],
+    Shocked: ["rocket", "openmouth"],
+    ThumbsUp: ["thumbsup", "balloon"],
+  };
+
+  // What each reaction looks like (from reaction_state_manager.py).
+  const REACTIONS = [
+    { name: "Excited",  icon: "🎉", eyes: "Eyes dart quickly side to side.",       arms: "Big wave: all arms swing, alternating neighbours." },
+    { name: "Love",     icon: "❤️", eyes: "A pulsing heart in each eye.",           arms: "Raises two arms, then three little pumps." },
+    { name: "Shocked",  icon: "😮", eyes: "Eyes dart side to side (same as Excited).", arms: "Two arms flap rapidly in small movements." },
+    { name: "ThumbsUp", icon: "👍", eyes: "Normal eyes, then the right eye winks.", arms: "One arm raises and holds; the other stays neutral." },
+  ];
+
+  const $ = (sel) => document.querySelector(sel);
+  const fmt = (v) => Number(v).toFixed(2);
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+  // ---- Log ----
+  const logEl = $("#log");
+  function log(text, ok) {
+    const li = document.createElement("li");
+    const t = new Date().toLocaleTimeString();
+    li.innerHTML = `<span class="muted">${t}</span> <span class="${ok ? "ok" : "bad"}">${ok ? "✓" : "✗"}</span> `;
+    li.appendChild(document.createTextNode(text));
+    logEl.prepend(li);
+    while (logEl.children.length > 100) logEl.lastChild.remove();
+  }
+  $("#clear-log").addEventListener("click", () => { logEl.innerHTML = ""; });
+
+  // ---- HTTP ----
+  async function post(path, body) {
+    const opts = { method: "POST", headers: {} };
+    if (body !== undefined) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(body);
+    }
+    const summary = `POST ${path}${body !== undefined ? " " + JSON.stringify(body) : ""}`;
+    try {
+      const res = await fetch(path, opts);
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        log(`${summary} → ${res.status}${json.recognized === false ? " (not recognized)" : ""}`, true);
+      } else {
+        log(`${summary} → ${res.status} ${json.message || res.statusText}`, false);
+      }
+      refreshHealth();
+      return res.ok;
+    } catch (e) {
+      log(`${summary} → ${e.message}`, false);
+      setConnected(false);
+      return false;
+    }
+  }
+
+  // Sends at most one request at a time per endpoint. While one is in flight,
+  // only the newest value is kept, so dragging a slider never floods the Pi.
+  function coalescingSender(path) {
+    let busy = false;
+    let pending;
+    let hasPending = false;
+    async function send(body) {
+      if (busy) { pending = body; hasPending = true; return; }
+      busy = true;
+      await post(path, body);
+      busy = false;
+      if (hasPending) {
+        hasPending = false;
+        const next = pending;
+        send(next);
+      }
+    }
+    return send;
+  }
+  const sendArm = coalescingSender("/arm");
+  const sendArms = coalescingSender("/arms");
+
+  // ---- Status ----
+  function setConnected(ok) {
+    $("#conn-dot").className = "dot " + (ok ? "ok" : "bad");
+    $("#conn-text").textContent = ok ? "Connected" : "Not reachable";
+  }
+  async function refreshHealth() {
+    try {
+      const res = await fetch("/health", { cache: "no-store" });
+      const json = await res.json();
+      setConnected(res.ok);
+      const hold = !!json.manual_hold;
+      $("#hold-dot").className = "dot " + (hold ? "warn" : "ok");
+      $("#hold-text").textContent = hold ? "Arms: manual hold" : "Arms: idle / animating";
+    } catch {
+      setConnected(false);
+      $("#hold-dot").className = "dot";
+      $("#hold-text").textContent = "Arms: —";
+    }
+  }
+  setInterval(refreshHealth, 2000);
+
+  // ---- Reactions ----
+  function renderReactions() {
+    const grid = $("#reaction-grid");
+    grid.innerHTML = "";
+    const tbody = $("#mapping-table");
+    tbody.innerHTML = "";
+    for (const r of REACTIONS) {
+      const emojis = REACTION_EMOJIS[r.name] || [];
+      const card = document.createElement("div");
+      card.className = "reaction";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "primary big";
+      btn.textContent = `${r.icon} ${r.name}`;
+      btn.disabled = emojis.length === 0;
+      btn.title = emojis.length ? `Sends {"type": "${emojis[0]}"}` : "No emoji is mapped to this reaction";
+      btn.addEventListener("click", () => post("/reaction", { type: emojis[0] }));
+      card.appendChild(btn);
+      const dl = document.createElement("dl");
+      dl.innerHTML = `<dt>Eyes</dt><dd></dd><dt>Arms</dt><dd></dd><dt>Zoom emojis</dt><dd class="chips"></dd>`;
+      const dds = dl.querySelectorAll("dd");
+      dds[0].textContent = r.eyes;
+      dds[1].textContent = r.arms;
+      for (const e of emojis) {
+        const c = document.createElement("span");
+        c.className = "chip";
+        c.textContent = e;
+        dds[2].appendChild(c);
+      }
+      card.appendChild(dl);
+      grid.appendChild(card);
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td></td><td></td>";
+      tr.children[0].textContent = `${r.icon} ${r.name}`;
+      tr.children[1].innerHTML = emojis.map((e) => `<code>${e}</code>`).join(", ") || "—";
+      tbody.appendChild(tr);
+    }
+  }
+
+  // ---- Shared arm state (last values sent / shown) ----
+  let heights = [];
+  let armSliders = [];
+  let armValues = [];
+  let selected = 0;
+
+  function showHeight(i) {
+    armSliders[i].value = heights[i];
+    armValues[i].textContent = fmt(heights[i]);
+    if (i === selected) {
+      $("#arm-slider").value = heights[i];
+      $("#arm-value").textContent = fmt(heights[i]);
+    }
+  }
+
+  // ---- Single arm ----
+  function renderPicker() {
+    const picker = $("#arm-picker");
+    picker.innerHTML = "";
+    for (let i = 0; i < N_ARMS; i++) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = i;
+      b.setAttribute("aria-pressed", i === selected ? "true" : "false");
+      b.addEventListener("click", () => selectArm(i));
+      picker.appendChild(b);
+    }
+  }
+  function selectArm(i) {
+    selected = i;
+    [...$("#arm-picker").children].forEach((b, j) => b.setAttribute("aria-pressed", j === i ? "true" : "false"));
+    $("#arm-label").textContent = i;
+    $("#arm-slider").value = heights[i];
+    $("#arm-value").textContent = fmt(heights[i]);
+  }
+  function setOneArm(h) {
+    heights[selected] = clamp01(h);
+    showHeight(selected);
+    sendArm({ tentacle: selected, height: heights[selected] });
+  }
+  $("#arm-slider").addEventListener("input", (e) => setOneArm(parseFloat(e.target.value)));
+  $("#arm-neutral").addEventListener("click", () => setOneArm(NEUTRAL));
+
+  // ---- All arms ----
+  const liveBox = $("#live");
+  function pushAll() {
+    sendArms({ heights: heights.map((h) => Math.round(h * 100) / 100) });
+  }
+  function renderArms() {
+    const grid = $("#arms-grid");
+    grid.style.setProperty("--n", N_ARMS);
+    grid.innerHTML = "";
+    armSliders = [];
+    armValues = [];
+    for (let i = 0; i < N_ARMS; i++) {
+      const col = document.createElement("div");
+      col.className = "arm";
+      col.innerHTML = `<span class="v"></span><input type="range" min="0" max="1" step="0.01" aria-label="Tentacle ${i} height"><label>${i}</label>`;
+      const slider = col.querySelector("input");
+      const v = col.querySelector(".v");
+      slider.addEventListener("input", () => {
+        heights[i] = parseFloat(slider.value);
+        showHeight(i);
+        if (liveBox.checked) pushAll();
+      });
+      armSliders.push(slider);
+      armValues.push(v);
+      grid.appendChild(col);
+    }
+    const master = document.createElement("div");
+    master.className = "arm master";
+    master.innerHTML = `<span class="v" id="master-v">${fmt(NEUTRAL)}</span><input type="range" id="master" min="0" max="1" step="0.01" value="${NEUTRAL}" aria-label="All tentacles height"><label>All</label>`;
+    grid.appendChild(master);
+    master.querySelector("input").addEventListener("input", (e) => {
+      const h = parseFloat(e.target.value);
+      $("#master-v").textContent = fmt(h);
+      setAll(() => h);
+    });
+    for (let i = 0; i < N_ARMS; i++) showHeight(i);
+  }
+  function setAll(fn, forceSend) {
+    for (let i = 0; i < N_ARMS; i++) {
+      heights[i] = clamp01(fn(i));
+      showHeight(i);
+    }
+    if (liveBox.checked || forceSend) pushAll();
+  }
+  const PRESETS = {
+    neutral: () => NEUTRAL,
+    down: () => 0,
+    up: () => 1,
+    alternate: (i) => (i % 2 === 0 ? 0.8 : 0.2),
+    ramp: (i) => (N_ARMS > 1 ? i / (N_ARMS - 1) : NEUTRAL),
+  };
+  document.querySelectorAll("[data-preset]").forEach((b) =>
+    b.addEventListener("click", () => setAll(PRESETS[b.dataset.preset]))
+  );
+  $("#send-pose").addEventListener("click", pushAll);
+  $("#release").addEventListener("click", () => post("/arms/release"));
+
+  // ---- Docs: fill in curl examples for this server ----
+  function renderCurl() {
+    const origin = window.location.origin;
+    document.querySelectorAll("code.origin").forEach((c) => (c.textContent = origin));
+    document.querySelectorAll("code.max-arm, .max-arm").forEach((c) => (c.textContent = N_ARMS - 1));
+    document.querySelectorAll("code.curl").forEach((c) => {
+      const body = c.dataset.body;
+      c.textContent = body
+        ? `curl -X POST ${origin}${c.dataset.path} \\\n  -H 'Content-Type: application/json' \\\n  -d '${body}'`
+        : `curl -X POST ${origin}${c.dataset.path}`;
+    });
+  }
+
+  function renderAll() {
+    heights = Array.from({ length: N_ARMS }, (_, i) => (heights[i] ?? NEUTRAL));
+    selected = Math.min(selected, N_ARMS - 1);
+    renderReactions();
+    renderPicker();
+    renderArms();
+    selectArm(selected);
+    renderCurl();
+  }
+
+  async function init() {
+    renderAll();
+    refreshHealth();
+    try {
+      const res = await fetch("/info", { cache: "no-store" });
+      if (res.ok) {
+        const info = await res.json();
+        N_ARMS = info.n_arms ?? N_ARMS;
+        NEUTRAL = info.neutral_height ?? NEUTRAL;
+        if (info.reactions) REACTION_EMOJIS = info.reactions;
+        renderAll();
+      }
+    } catch {
+      /* keep fallbacks */
+    }
+  }
+  init();
+})();
+</script>
+</body>
+</html>

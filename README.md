@@ -54,6 +54,7 @@ To add a new animation, subclass `EyeAnimation` (`eyes/animations/animation.py`)
 
 ```
 combined.py               One server for Zoom reactions AND direct tentacle control (see below)
+web/control.html          Browser control panel served by combined.py at /
 commandline_main.py       Keyboard-driven control (e/h/s/t) — handy for testing
 zoom_receiver_main.py     Flask server on :5000 that receives reactions from the Zoom App backend
 direct_control_main.py    Flask server on :5000 to set individual tentacle positions (POST /arm)
@@ -324,12 +325,26 @@ It runs with Flask `debug=True`, so it auto-reloads when code changes. Do not ru
 
 `combined.py` runs everything from `zoom_receiver_main.py` and `direct_control_main.py` in one process, on one port (5000 by default). Use it instead of those two, not alongside them.
 
+### Control panel
+
+Open `http://<pi-address>:5000/` in a browser (a phone works too). The page (`web/control.html`) has:
+
+- **A button for each reaction** (Excited, Love, Shocked, ThumbsUp). Each card describes the eye and arm animations and lists the Zoom emoji names that trigger it.
+- **One tentacle:** pick a tentacle `0`–`7` and drag a slider. Sends `POST /arm` live.
+- **All tentacles:** one vertical slider per tentacle, plus an **All** slider and presets (neutral, down, up, alternate, ramp). Sends `POST /arms`, either live or when you press **Send pose**. **Release to idle** calls `/arms/release`.
+- **An API reference** for every endpoint, with `curl` examples filled in with this server's address.
+- **A status bar** (connected, and whether the arms are in manual hold) and a **log** of each request and its response.
+
+While you drag, the page keeps at most one request in flight per endpoint and sends only the latest value, so the Pi is never flooded. It loads nothing from the internet, so it works on a network with no internet access. It gets the arm count and the emoji mapping from `GET /info`, so it stays in sync with `ZOOM_EMOJI_TO_REACTION_TYPE`.
+
 | Endpoint             | Body | Does |
 |----------------------|------|------|
 | `POST /reaction`     | `{"type": "heart"}` (the Zoom backend's payload; only `type` is used) | Queues the matching animation for the eyes and arms |
 | `POST /arm`          | `{"tentacle": 2, "height": 0.75}` | Sets one tentacle and enters **manual hold** |
 | `POST /arms`         | `{"heights": [...]}` or `{"heights": {"3": 0.1}}` | Sets several tentacles and enters **manual hold** |
 | `POST /arms/release` | none | Leaves manual hold. The arms return to idle (0.5) on the next frame |
+| `GET /`              | — | Serves the control panel |
+| `GET /info`          | — | `{"n_arms": 8, "neutral_height": 0.5, "reactions": {"Love": ["heart", "clap"], ...}}` |
 | `GET /health`        | — | `{"status": "healthy", "service": "abbott-combined", "manual_hold": true/false, ...}` |
 
 The `/arm` and `/arms` bodies are the same as in the [direct control API](#direct-control-api-direct_control_mainpy), with two differences:

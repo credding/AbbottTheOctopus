@@ -3,6 +3,8 @@
 Combined Abbott server: Zoom reactions + direct tentacle control in one app.
 
 Endpoints (port 5000 by default; change with --port):
+    GET  /              Control panel web page (web/control.html)
+    GET  /info          Arm count and emoji -> reaction mapping (used by the page)
     POST /reaction      Zoom reaction event, e.g. {"type": "heart"} -> plays an animation
     POST /arm           Set one tentacle: {"tentacle": 2, "height": 0.75}
     POST /arms          Set many tentacles: {"heights": [...]} or {"heights": {"3": 0.1}}
@@ -24,13 +26,14 @@ Run with --test to use the browser visualization instead of real hardware.
 
 import argparse
 import json
+import os
 import threading
 from datetime import datetime
 from queue import Empty, Queue
 from time import sleep
 from typing import Optional
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 
 from arms.arm_animation import ArmAnimation
@@ -42,6 +45,7 @@ from reaction_state_manager import (
 )
 
 PORT = 5000
+CONTROL_PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "control.html")
 NEUTRAL_HEIGHT = 0.5
 
 
@@ -280,6 +284,27 @@ def release_arms():
     return jsonify({"status": "success", "timestamp": _now()}), 200
 
 
+@app.route("/", methods=["GET"])
+def control_page():
+    """Browser control panel: reaction buttons, tentacle sliders, API docs."""
+    return send_file(CONTROL_PAGE)
+
+
+@app.route("/info", methods=["GET"])
+def info():
+    """What the control page needs to render: arm count and emoji mapping."""
+    emojis_by_reaction: dict[str, list[str]] = {}
+    for emoji, reaction in ZOOM_EMOJI_TO_REACTION_TYPE.items():
+        emojis_by_reaction.setdefault(reaction, []).append(emoji)
+    return jsonify(
+        {
+            "n_arms": ABBOTT.n_arms,
+            "neutral_height": NEUTRAL_HEIGHT,
+            "reactions": emojis_by_reaction,
+        }
+    )
+
+
 @app.route("/health", methods=["GET"])
 def health_check():
     return (
@@ -318,6 +343,7 @@ def main():
     print("\n" + "=" * 80)
     print(f"Abbott combined server ({'TEST' if args.test else 'HARDWARE'} mode)")
     print("=" * 80)
+    print(f"     http://localhost:{port}/              control panel (open in a browser)")
     print(f"POST http://localhost:{port}/reaction      Zoom reaction")
     print(f"POST http://localhost:{port}/arm           one tentacle")
     print(f"POST http://localhost:{port}/arms          many tentacles")
