@@ -136,6 +136,128 @@ python tentacle_control.py          # then open http://localhost:8080
 
 Note: the IP address that `tentacle_control.py` posts to is hardcoded in its HTML; edit it to match your Pi.
 
+## Direct control API (`direct_control_main.py`)
+
+`direct_control_main.py` is a small Flask server that lets any HTTP client set the position of a single tentacle servo. It does not use the reaction/animation system: each request moves one servo immediately, and it stays there until another request moves it.
+
+- **Host/port:** `0.0.0.0:5000` (reachable from other machines on the network)
+- **CORS:** allowed from any origin, so browser pages served from elsewhere (like `tentacle_control.py`) can call it
+- **Startup banner:** the banner says `POST /reaction`, but the real endpoint is **`POST /arm`**
+
+### `POST /arm`: set one tentacle's position
+
+**Required headers**
+
+| Header         | Value              |
+|----------------|--------------------|
+| `Content-Type` | `application/json` |
+
+The header is required. Without it, Flask rejects the body and the server returns a 500 error (see below).
+
+**Body:** a JSON object with exactly these two fields:
+
+| Field      | Type                          | Meaning |
+|------------|-------------------------------|---------|
+| `tentacle` | integer (or numeric string)   | Which servo to move. Passed through `int()`, so `3` and `"3"` both work. `3.9` (a JSON number) is truncated to `3`, but the string `"3.9"` is an error. |
+| `height`   | number (or numeric string)    | Target position. Passed through `float()`. `0.0` is fully down, `1.0` is fully up, and `0.5` is neutral (the idle position the animations use). |
+
+Extra fields are ignored. Field names are case-sensitive.
+
+**Valid `tentacle` values**
+
+| Mode                  | Valid indices | Notes |
+|-----------------------|---------------|-------|
+| Hardware (default)    | `0`–`7`       | Index = PCA9685 channel number. All 8 arms are created **non-inverted** here, which differs from the animation code (it inverts every arm). So the same `height` can move a servo in the opposite direction from an animation. |
+| `--test`              | `0`–`6`       | Only 7 stub controllers are created, so `7` returns an error. All stubs are built with index `True` (i.e. `1`), so every request currently moves **arm 1** in the visualization at <http://localhost:8765>, whatever `tentacle` you send. |
+
+Negative indices follow Python list indexing (`-1` is the last arm). Avoid them.
+
+**How `height` maps to the servo:** in `arms/arm_controler.py`:
+
+```
+duty_cycle = MIN_DUTY + round(height * (MAX_DUTY - MIN_DUTY))
+           = 0x0600   + round(height * 0x2200)
+```
+
+`MIN_DUTY` (`0x0600`) and `MAX_DUTY` (`0x2800`) are the range where the servo was found to actually move, at a PWM frequency of 60 Hz. **`height` is not clamped.** Values outside `0.0`–`1.0` push the servo past its tested range and can strain it. Values far enough outside that the duty cycle leaves `0x0000`–`0xFFFF` (below about `-0.18` or above about `7.3`) make the PCA9685 driver raise an error.
+
+**Example request**
+
+```http
+POST /arm HTTP/1.1
+Host: <pi-address>:5000
+Content-Type: application/json
+
+{"tentacle": 2, "height": 0.75}
+```
+
+```bash
+curl -X POST http://<pi-address>:5000/arm \
+  -H 'Content-Type: application/json' \
+  -d '{"tentacle": 2, "height": 0.75}'
+```
+
+```python
+import requests
+requests.post("http://<pi-address>:5000/arm", json={"tentacle": 2, "height": 0.75})
+```
+
+```js
+fetch("http://<pi-address>:5000/arm", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ tentacle: 2, height: 0.75 }),
+});
+```
+
+**Success response:** `200 OK`
+
+```json
+{"status": "success", "timestamp": "2026-11-17T14:03:12.345678"}
+```
+
+`timestamp` is the Pi's local time when the request was handled (ISO 8601, no timezone).
+
+**Error response:** `500 Internal Server Error`
+
+Every failure returns a 500 with the exception text in `message`, including problems that are really client errors:
+
+```json
+{"status": "error", "message": "'height'"}
+```
+
+| Cause                                   | Example `message` |
+|-----------------------------------------|-------------------|
+| Missing field                           | `'tentacle'` or `'height'` (the missing key name) |
+| Non-numeric value                       | `invalid literal for int() with base 10: 'left'` / `could not convert string to float: 'up'` |
+| `tentacle` out of range                 | `list index out of range` |
+| Missing/wrong `Content-Type`            | `415 Unsupported Media Type: ...` |
+| Malformed JSON                          | `400 Bad Request: ...` |
+| `height` far out of range (hardware)    | an error from the PCA9685 driver about the duty cycle |
+
+The server also prints every request body it receives to the console, which helps with debugging.
+
+**Moving several tentacles:** send one request per tentacle. There is no batch form and no interpolation: each servo moves to the new position as fast as it can. For smooth motion, send a stream of small steps (the slider in `tentacle_control.py` does this, posting on every `input` event).
+
+### `GET /health`
+
+Returns `200 OK`. It does not touch the hardware.
+
+```json
+{"status": "healthy", "service": "reaction-receiver", "timestamp": "2026-11-17T14:03:12.345678"}
+```
+
+(`service` says `reaction-receiver` because the code was copied from the reaction receiver.)
+
+### Running it
+
+```bash
+python direct_control_main.py          # real servos via PCA9685 over I²C
+python direct_control_main.py --test   # stub arms + browser visualization on :8765
+```
+
+It runs with Flask `debug=True`, so it auto-reloads when code changes. Do not run it at the same time as `zoom_receiver_main.py`: both use port 5000 and the same servos.
+
 ## Known rough edges
 
 - `main.py` is a placeholder.
