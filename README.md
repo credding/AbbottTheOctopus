@@ -168,7 +168,7 @@ Extra fields are ignored. Field names are case-sensitive.
 | Mode                  | Valid indices | Notes |
 |-----------------------|---------------|-------|
 | Hardware (default)    | `0`–`7`       | Index = PCA9685 channel number. All 8 arms are created **non-inverted** here, which differs from the animation code (it inverts every arm). So the same `height` can move a servo in the opposite direction from an animation. |
-| `--test`              | `0`–`6`       | Only 7 stub controllers are created, so `7` returns an error. All stubs are built with index `True` (i.e. `1`), so every request currently moves **arm 1** in the visualization at <http://localhost:8765>, whatever `tentacle` you send. |
+| `--test`              | `0`–`7`       | Stub arms, shown in the visualization at <http://localhost:8765>. |
 
 Negative indices follow Python list indexing (`-1` is the last arm). Avoid them.
 
@@ -237,7 +237,60 @@ Every failure returns a 500 with the exception text in `message`, including prob
 
 The server also prints every request body it receives to the console, which helps with debugging.
 
-**Moving several tentacles:** send one request per tentacle. There is no batch form and no interpolation: each servo moves to the new position as fast as it can. For smooth motion, send a stream of small steps (the slider in `tentacle_control.py` does this, posting on every `input` event).
+**Moving several tentacles:** use `POST /arms` (below). Neither endpoint smooths the motion: each servo moves to the new position as fast as it can. For smooth motion, send a stream of small steps (the slider in `tentacle_control.py` does this, posting on every `input` event).
+
+### `POST /arms`: set several or all tentacles at once
+
+Same server, same `Content-Type: application/json` requirement. The body has a single field, `heights`, in one of two forms:
+
+**List form:** the index is the tentacle number. Use `null` to leave a tentacle where it is. A list shorter than 8 only sets the tentacles it covers.
+
+```json
+{"heights": [0.5, 0.6, 0.5, 0.7, 0.5, 0.5, 0.5, 0.5]}
+{"heights": [null, 0.9, null, 0.1]}
+```
+
+**Object form:** keys are tentacle numbers (as strings, since JSON object keys are strings). Only the listed tentacles move.
+
+```json
+{"heights": {"1": 0.9, "3": 0.1}}
+```
+
+**Validation:** this endpoint is stricter than `/arm`:
+
+- Every height must be a JSON number (not a string) between `0.0` and `1.0` inclusive.
+- Every tentacle number must be an integer from `0` to `7`.
+- **All values are checked before any servo moves.** If one value is invalid, nothing moves.
+
+```bash
+curl -X POST http://<pi-address>:5000/arms \
+  -H 'Content-Type: application/json' \
+  -d '{"heights": [0.5, 0.6, 0.5, 0.7, 0.5, 0.5, 0.5, 0.5]}'
+```
+
+```python
+requests.post("http://<pi-address>:5000/arms", json={"heights": {"0": 0.8, "6": 0.8}})
+```
+
+**Success response:** `200 OK`. `set` lists exactly which tentacles were moved, and to what height.
+
+```json
+{"status": "success", "timestamp": "2026-11-17T14:03:12.345678", "set": {"0": 0.8, "6": 0.8}}
+```
+
+**Error responses**
+
+| Status | Cause | Example `message` |
+|--------|-------|-------------------|
+| `400`  | Body isn't JSON, wrong/missing `Content-Type`, or no `heights` field | `Body must be JSON like {"heights": [...]} with Content-Type: application/json` |
+| `400`  | `heights` is neither a list nor an object | `"heights" must be a list or an object` |
+| `400`  | Bad tentacle number | `tentacle 'x' is not an integer` / `tentacle 8 out of range 0-7` |
+| `400`  | Bad height | `height for tentacle 0 must be a number` / `height 1.5 for tentacle 1 outside 0.0-1.0` |
+| `500`  | The hardware driver raised an error while setting servos | the driver's exception text |
+
+A 500 can happen partway through, in which case the tentacles set before the error stay where they were moved.
+
+The servos are set one after another in a tight loop. That takes microseconds, so in practice they all start moving together.
 
 ### `GET /health`
 

@@ -15,7 +15,7 @@ ARM_CONTROLLERS = []
 
 def get_arm_controllers(is_test):
     if is_test:
-        return [GraphicalStubArmController(True) for i in range (0, 7)]
+        return [GraphicalStubArmController(i) for i in range(0, 8)]
     else:
         import board
         import busio
@@ -64,6 +64,91 @@ def receive_reaction():
     except Exception as e:
         print(f"ERROR: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+def _parse_heights(heights):
+    """
+    Turn the "heights" field into a {channel: height} dict, or raise ValueError.
+
+    Accepts either a list (index = tentacle; null entries are skipped) or an
+    object mapping tentacle numbers (as strings or ints) to heights.
+    """
+    if isinstance(heights, list):
+        items = [(i, h) for i, h in enumerate(heights) if h is not None]
+    elif isinstance(heights, dict):
+        items = list(heights.items())
+    else:
+        raise ValueError('"heights" must be a list or an object')
+
+    n_arms = len(ARM_CONTROLLERS)
+    parsed = {}
+    for key, value in items:
+        try:
+            channel = int(key)
+        except (TypeError, ValueError):
+            raise ValueError(f"tentacle {key!r} is not an integer")
+        if not 0 <= channel < n_arms:
+            raise ValueError(f"tentacle {channel} out of range 0-{n_arms - 1}")
+
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"height for tentacle {channel} must be a number")
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"height {value} for tentacle {channel} outside 0.0-1.0")
+
+        parsed[channel] = float(value)
+
+    return parsed
+
+
+@app.route("/arms", methods=["POST"])
+def set_all_arms():
+    """
+    Set several (or all) tentacles in one request.
+
+    Body: {"heights": [h0, h1, ...]}  or  {"heights": {"0": h0, "3": h3}}
+    Every value is validated before any servo moves, so a bad request
+    changes nothing.
+    """
+    timestamp = datetime.now().isoformat()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or "heights" not in data:
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "message": 'Body must be JSON like {"heights": [...]} '
+                    "with Content-Type: application/json",
+                }
+            ),
+            400,
+        )
+
+    print(f"\n{'='*80}")
+    print(json.dumps(data, indent=2))
+    print(f"{'='*80}\n")
+
+    try:
+        positions = _parse_heights(data["heights"])
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+    try:
+        for channel, height in positions.items():
+            ARM_CONTROLLERS[channel].set_pos(height)
+    except Exception as e:
+        print(f"ERROR: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+    return (
+        jsonify(
+            {
+                "status": "success",
+                "timestamp": timestamp,
+                "set": {str(c): h for c, h in positions.items()},
+            }
+        ),
+        200,
+    )
 
 
 @app.route("/health", methods=["GET"])
