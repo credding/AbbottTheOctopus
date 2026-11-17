@@ -53,6 +53,7 @@ To add a new animation, subclass `EyeAnimation` (`eyes/animations/animation.py`)
 ## Project layout
 
 ```
+combined.py               One server for Zoom reactions AND direct tentacle control (see below)
 commandline_main.py       Keyboard-driven control (e/h/s/t) — handy for testing
 zoom_receiver_main.py     Flask server on :5000 that receives reactions from the Zoom App backend
 direct_control_main.py    Flask server on :5000 to set individual tentacle positions (POST /arm)
@@ -110,7 +111,15 @@ See `zoomapp/README.md` for creating the Zoom Marketplace app, configuring ngrok
 
 Run all commands from the repository root (image paths like `eyes/Eye.png` are relative to it).
 
-**React to Zoom reactions (on the Pi):**
+**Zoom reactions + direct tentacle control in one server (on the Pi):**
+
+```bash
+python combined.py                 # add --test to run without hardware, --port N to change port
+```
+
+See [Combined server](#combined-server-combinedpy) below.
+
+**React to Zoom reactions only (on the Pi):**
 
 ```bash
 python zoom_receiver_main.py
@@ -310,6 +319,37 @@ python direct_control_main.py --test   # stub arms + browser visualization on :8
 ```
 
 It runs with Flask `debug=True`, so it auto-reloads when code changes. Do not run it at the same time as `zoom_receiver_main.py`: both use port 5000 and the same servos.
+
+## Combined server (`combined.py`)
+
+`combined.py` runs everything from `zoom_receiver_main.py` and `direct_control_main.py` in one process, on one port (5000 by default). Use it instead of those two, not alongside them.
+
+| Endpoint             | Body | Does |
+|----------------------|------|------|
+| `POST /reaction`     | `{"type": "heart"}` (the Zoom backend's payload; only `type` is used) | Queues the matching animation for the eyes and arms |
+| `POST /arm`          | `{"tentacle": 2, "height": 0.75}` | Sets one tentacle and enters **manual hold** |
+| `POST /arms`         | `{"heights": [...]}` or `{"heights": {"3": 0.1}}` | Sets several tentacles and enters **manual hold** |
+| `POST /arms/release` | none | Leaves manual hold. The arms return to idle (0.5) on the next frame |
+| `GET /health`        | — | `{"status": "healthy", "service": "abbott-combined", "manual_hold": true/false, ...}` |
+
+The `/arm` and `/arms` bodies are the same as in the [direct control API](#direct-control-api-direct_control_mainpy), with two differences:
+
+- **Validation is stricter.** Both endpoints use the strict `/arms` rules: heights must be JSON numbers in `0.0`–`1.0`, and tentacles must be integers `0`–`7`. Client mistakes return `400` with a message, not `500`.
+- **Direction matches the animations.** The servers share one set of arm controllers, created by `make_arm_controllers()`, which inverts every arm. A given `height` therefore moves a servo the same way the animations do, which may be the **opposite** of what `direct_control_main.py` does with the same value.
+
+`/reaction` returns `400` if the body isn't JSON or has no string `type`. Unknown emoji names still return `200`, with `"recognized": false`, and are ignored.
+
+### How reactions and direct control share the arms
+
+- **Idle:** the eyes wander, and the arms are held at 0.5.
+- **After `/arm` or `/arms`:** the arms go into *manual hold*. The idle animation stops resetting them, so they stay where you put them. The eyes keep wandering.
+- **When a reaction arrives:** it always takes over the arms (and eyes), and clears manual hold. When it finishes, the arms return to 0.5. They do **not** go back to their manual positions.
+- **`/arms/release`:** clears manual hold without playing a reaction.
+- **Direct commands during a reaction:** they set the servos immediately, but the reaction's next frame will usually overwrite the arms it animates.
+
+The HTTP server runs in a background thread, and the animation loop runs in the main thread. All servo and display writes happen under one lock, so the two never write to the hardware at the same time. Flask runs with `debug=False`, because the auto-reloader would start a second copy of the hardware loop.
+
+On macOS, port 5000 is taken by AirPlay Receiver (requests get `403 Forbidden`). Use `--port`, e.g. `python combined.py --test --port 5057`.
 
 ## Known rough edges
 
