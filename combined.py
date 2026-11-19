@@ -11,6 +11,12 @@ Endpoints (port 5000 by default; change with --port):
     POST /arms/release  Hand the arms back to the idle animation
     GET  /health        Health check
 
+Authentication: every POST route requires a JWT signed by batchmate.id, sent as
+    Authorization: Bearer <token>
+The token must have iss=https://batchmate.id, aud=https://costello-reactions.test,
+and an unexpired exp. Requests without a valid token get 401. The GET routes are
+open.
+
 Arms are shared between the reaction animations and direct control:
   - A direct-control command puts the arms in "manual hold": the idle animation
     stops resetting them, so they stay where you put them.
@@ -29,11 +35,13 @@ import json
 import os
 import threading
 from datetime import datetime
+from functools import wraps
 from queue import Empty, Queue
 from time import sleep
 from typing import Optional
 
-from flask import Flask, jsonify, request, send_file
+import jwt
+from flask import Flask, g, jsonify, request, send_file
 from flask_cors import CORS
 
 from arms.arm_animation import ArmAnimation
@@ -47,6 +55,12 @@ from reaction_state_manager import (
 PORT = 5000
 CONTROL_PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "control.html")
 NEUTRAL_HEIGHT = 0.5
+
+JWT_ISSUER = "https://batchmate.id"
+JWT_AUDIENCE = "https://costello-reactions.test"
+JWKS_URL = "https://batchmate.id/oauth/certs"
+# Caches batchmate.id's signing keys; refetches when a token names an unknown kid.
+JWKS_CLIENT = jwt.PyJWKClient(JWKS_URL, cache_keys=True, lifespan=3600)
 
 
 class ManualHoldIdleArmAnimation(ArmAnimation):
@@ -149,8 +163,48 @@ def _error(message: str, status: int):
     return jsonify({"status": "error", "message": message}), status
 
 
+def _unauthorized(message: str):
+    response, status = _error(message, 401)
+    response.headers["WWW-Authenticate"] = 'Bearer realm="abbott"'
+    return response, status
+
+
+def require_jwt(view):
+    """Reject the request unless it carries a valid batchmate.id JWT for our audience."""
+
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+        token = token.strip()
+        if scheme.lower() != "bearer" or not token:
+            return _unauthorized("Missing bearer token")
+        try:
+            signing_key = JWKS_CLIENT.get_signing_key_from_jwt(token)
+            claims = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["ES256"],
+                audience=JWT_AUDIENCE,
+                issuer=JWT_ISSUER,
+                options={"require": ["exp", "iss", "aud"]},
+                leeway=30,
+            )
+        except jwt.PyJWKClientError as e:
+            print(f"JWT key lookup failed: {e}")
+            return _unauthorized(f"Invalid token: {e}")
+        except jwt.InvalidTokenError as e:
+            return _unauthorized(f"Invalid token: {e}")
+        g.jwt_claims = claims
+        return view(*args, **kwargs)
+
+    return wrapper
+
+
 def _log_body(data):
     print(f"\n{'='*80}\n[{_now()}] {request.method} {request.path}")
+    claims = g.get("jwt_claims")
+    if claims:
+        print(f"by sub={claims.get('sub')!r}")
     print(json.dumps(data, indent=2))
     print(f"{'='*80}\n")
 
@@ -222,6 +276,7 @@ def _apply(positions: dict[int, float]):
 
 
 @app.route("/reaction", methods=["POST"])
+@require_jwt
 def receive_reaction():
     data = _get_json_body()
     if data is None or not isinstance(data.get("type"), str):
@@ -246,6 +301,7 @@ def receive_reaction():
 
 
 @app.route("/arm", methods=["POST"])
+@require_jwt
 def set_one_arm():
     data = _get_json_body()
     if data is None or "tentacle" not in data or "height" not in data:
@@ -263,6 +319,7 @@ def set_one_arm():
 
 
 @app.route("/arms", methods=["POST"])
+@require_jwt
 def set_many_arms():
     data = _get_json_body()
     if data is None or "heights" not in data:
@@ -279,6 +336,7 @@ def set_many_arms():
 
 
 @app.route("/arms/release", methods=["POST"])
+@require_jwt
 def release_arms():
     ABBOTT.release()
     return jsonify({"status": "success", "timestamp": _now()}), 200
@@ -349,6 +407,7 @@ def main():
     print(f"POST http://localhost:{port}/arms          many tentacles")
     print(f"POST http://localhost:{port}/arms/release  back to idle")
     print(f"GET  http://localhost:{port}/health")
+    print(f"POST routes need: Authorization: Bearer <batchmate.id JWT, aud={JWT_AUDIENCE}>")
     print("=" * 80 + "\n")
 
     # Flask in a background thread; the animation loop owns the main thread.

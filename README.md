@@ -352,6 +352,8 @@ The `/arm` and `/arms` bodies are the same as in the [direct control API](#direc
 - **Validation is stricter.** Both endpoints use the strict `/arms` rules: heights must be JSON numbers in `0.0`–`1.0`, and tentacles must be integers `0`–`7`. Client mistakes return `400` with a message, not `500`.
 - **Direction matches the animations.** The servers share one set of arm controllers, created by `make_arm_controllers()`, which inverts every arm. A given `height` therefore moves a servo the same way the animations do, which may be the **opposite** of what `direct_control_main.py` does with the same value.
 
+**Authentication:** every `POST` route requires a JWT signed by [batchmate.id](https://batchmate.id), sent as `Authorization: Bearer <token>`. The token must have `iss` `https://batchmate.id`, `aud` `https://costello-reactions.test`, and an unexpired `exp`. Signing keys are fetched from `https://batchmate.id/oauth/certs` and cached. A missing or invalid token gets `401`. `GET /`, `/info` and `/health` are open. The control panel and the Zoom backend forwarder don't send a token yet, so their `POST`s will get `401` until they do.
+
 `/reaction` returns `400` if the body isn't JSON or has no string `type`. Unknown emoji names still return `200`, with `"recognized": false`, and are ignored.
 
 ### How reactions and direct control share the arms
